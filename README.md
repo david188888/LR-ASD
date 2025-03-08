@@ -1,14 +1,14 @@
 # LR-ASD: Lightweight and Robust Network for Active Speaker Detection
-This repository contains the code and model weights for our paper (IJCV 2025):
+
+
+This repository contains the code and model weights for the extended version (IJCV 2025) of our conference publication ([A Light Weight Model for Active Speaker Detection](https://openaccess.thecvf.com/content/CVPR2023/papers/Liao_A_Light_Weight_Model_for_Active_Speaker_Detection_CVPR_2023_paper.pdf), CVPR 2023, [code](https://github.com/Junhua-Liao/Light-ASD)):
 
 > LR-ASD: Lightweight and Robust Network for Active Speaker Detection  
 > Junhua Liao, Haihan Duan, Kanghui Feng, Wanbing Zhao, Yanbing Yang, Liangyin Chen, Yanru Chen
 
-This paper is the extension of our conference publication (A Light Weight Model for Active Speaker Detection, CVPR 2023, [paper](https://openaccess.thecvf.com/content/CVPR2023/papers/Liao_A_Light_Weight_Model_for_Active_Speaker_Detection_CVPR_2023_paper.pdf), [code](https://github.com/Junhua-Liao/Light-ASD)).
-
 
 ***
-Code and model weights will be released in March 2025.
+**Code and model weights will be released in March 2025.**
 
 
 ***
