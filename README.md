@@ -78,12 +78,23 @@ Please cite our papers if you use this code or model weights.
 
 ```
 @InProceedings{Liao_2023_CVPR,
-    author    = {Liao, Junhua and Duan, Haihan and Feng, Kanghui and Zhao, Wanbing and Yang, Yanbing and Chen, Liangyin},
     title     = {A Light Weight Model for Active Speaker Detection},
+    author    = {Liao, Junhua and Duan, Haihan and Feng, Kanghui and Zhao, Wanbing and Yang, Yanbing and Chen, Liangyin},
     booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
     month     = {June},
     year      = {2023},
     pages     = {22932-22941}
+}
+```
+```
+@article{Liao_2025_IJCV,
+  title={LR-ASD: Lightweight and Robust Network for Active Speaker Detection},
+  author={Liao, Junhua and Duan, Haihan and Feng, Kanghui and Zhao, Wanbing and Yang, Yanbing and Chen, Liangyin and Chen, Yanru},
+  journal={International Journal of Computer Vision},
+  volume={0},
+  pages={0--0},
+  year={2025},
+  publisher={Springer}
 }
 ```
 
