@@ -59,7 +59,7 @@ And you can get the following F1 result.
 
 
 ***
-### An ASD Demo with pretrained Light-ASD model
+### An ASD Demo with pretrained LR-ASD model
 You can put the raw video (`.mp4` and `.avi` are both fine) into the `demo` folder, such as `0001.mp4`. 
 ```
 python Columbia_test.py --videoName 0001 --videoFolder demo
@@ -88,13 +88,13 @@ Please cite our papers if you use this code or model weights.
 ```
 ```
 @article{Liao_2025_IJCV,
-  title={LR-ASD: Lightweight and Robust Network for Active Speaker Detection},
-  author={Liao, Junhua and Duan, Haihan and Feng, Kanghui and Zhao, Wanbing and Yang, Yanbing and Chen, Liangyin and Chen, Yanru},
-  journal={International Journal of Computer Vision},
-  volume={0},
-  pages={0--0},
-  year={2025},
-  publisher={Springer}
+  title     = {LR-ASD: Lightweight and Robust Network for Active Speaker Detection},
+  author    = {Liao, Junhua and Duan, Haihan and Feng, Kanghui and Zhao, Wanbing and Yang, Yanbing and Chen, Liangyin and Chen, Yanru},
+  journal   = {International Journal of Computer Vision},
+  volume    = {0},
+  pages     = {0--0},
+  year      = {2025},
+  publisher = {Springer}
 }
 ```
 
