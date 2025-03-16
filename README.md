@@ -44,7 +44,7 @@ The Columbia ASD dataset and the labels will be downloaded into `colDataPath`. A
 |----- | ------ | ------ | ------ | ------ | ------ | ------ |
 |  F1  |  88.8% |  77.9% |  90.3% |  85.4% |  88.3% |  86.1% |
 
-We have also provided the model weights fine-tuned on the TalkSet dataset. Due to space limitations, we did not exhibit it in the paper. Run the following code.
+We have also provided the model weights fine-tuned on the TalkSet dataset. Run the following code.
 ```
 python Columbia_test.py --evalCol --pretrainModel weight/finetuning_TalkSet.model --colSavePath colDataPath
 ```
