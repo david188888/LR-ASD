@@ -42,7 +42,7 @@ python Columbia_test.py --evalCol --colSavePath colDataPath
 The Columbia ASD dataset and the labels will be downloaded into `colDataPath`. And you can get the following F1 result.
 | Name |  Bell  |  Boll  |  Lieb  |  Long  |  Sick  |  Avg.  |
 |----- | ------ | ------ | ------ | ------ | ------ | ------ |
-|  F1  |  82.7% |  75.7% |  87.0% |  74.5% |  85.4% |  81.1% |
+|  F1  |  88.8% |  77.9% |  90.3% |  85.4% |  88.3% |  86.1% |
 
 We have also provided the model weights fine-tuned on the TalkSet dataset. Due to space limitations, we did not exhibit it in the paper. Run the following code.
 ```
@@ -51,7 +51,7 @@ python Columbia_test.py --evalCol --pretrainModel weight/finetuning_TalkSet.mode
 And you can get the following F1 result.
 | Name |  Bell  |  Boll  |  Lieb  |  Long  |  Sick  |  Avg.  |
 |----- | ------ | ------ | ------ | ------ | ------ | ------ |
-|  F1  |  97.7% |  86.3% |  98.2% |  99.0% |  96.3% |  95.5% |
+|  F1  |  96.9% |  89.4% |  97.6% |  99.0% |  99.2% |  96.4% |
 
 
 ***
