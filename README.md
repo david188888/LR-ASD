@@ -8,10 +8,6 @@ This repository contains the code and model weights for the extended version (IJ
 
 
 ***
-**Code and model weights will be released in March 2025.**
-
-
-***
 ### Evaluate on AVA-ActiveSpeaker dataset 
 
 #### Data preparation
@@ -29,7 +25,7 @@ python train.py --dataPathAVA AVADataPath
 `exps/exps1/score.txt`: output score file, `exps/exp1/model/model_00xx.model`: trained model, `exps/exps1/val_res.csv`: prediction for val set.
 
 #### Testing
-Our model weights have been placed in the `weight` folder. It performs `mAP: 94.06%` in the validation set. You can check it by using: 
+Our model weights have been placed in the `weight` folder. It performs `mAP: 94.45%` in the validation set. You can check it by using: 
 ```
 python train.py --dataPathAVA AVADataPath --evaluation
 ```
