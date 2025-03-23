@@ -87,8 +87,7 @@ Please cite our papers if you use this code or model weights.
   title     = {LR-ASD: Lightweight and Robust Network for Active Speaker Detection},
   author    = {Liao, Junhua and Duan, Haihan and Feng, Kanghui and Zhao, Wanbing and Yang, Yanbing and Chen, Liangyin and Chen, Yanru},
   journal   = {International Journal of Computer Vision},
-  volume    = {0},
-  pages     = {0--0},
+  pages     = {1--21},
   year      = {2025},
   publisher = {Springer}
 }
