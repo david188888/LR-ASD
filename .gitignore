@@ -1,0 +1,4 @@
+__pycache__/
+demo
+
+model/faceDetector/s3fd/sfd_face.pth

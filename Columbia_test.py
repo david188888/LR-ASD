@@ -1,4 +1,8 @@
-import sys, time, os, tqdm, torch, argparse, glob, subprocess, warnings, cv2, pickle, numpy, pdb, math, python_speech_features
+import sys, time, os, tqdm, torch, argparse, glob, subprocess, warnings, cv2, pickle, numpy, pdb, math, python_speech_features, json, uuid
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.cluster import AgglomerativeClustering
+from deepface import DeepFace
+import tempfile
 
 from scipy import signal
 from shutil import rmtree
@@ -35,6 +39,10 @@ parser.add_argument('--duration',              type=int, default=0,  help='The d
 
 parser.add_argument('--evalCol',               dest='evalCol', action='store_true', help='Evaluate on Columbia dataset')
 parser.add_argument('--colSavePath',           type=str, default="/colDataPath",  help='Path for inputs, tmps and outputs')
+
+parser.add_argument('--generateJson',          dest='generateJson', action='store_true', help='Generate speaker labels JSON file')
+parser.add_argument('--jsonOutputPath',        type=str, default="speaker_labels.json",  help='Output path for JSON file')
+parser.add_argument('--speakerThreshold',      type=float, default=0.75, help='Similarity threshold for speaker clustering')
 
 args = parser.parse_args()
 
@@ -247,6 +255,448 @@ def evaluate_network(files, args):
 		allScores.append(allScore)	
 	return allScores
 
+def extract_deepface_features_from_track(track_video_path, sample_frames=5):
+	"""
+	使用DeepFace从track视频中提取人脸特征
+	Args:
+		track_video_path: track视频文件路径
+		sample_frames: 采样帧数
+	Returns:
+		averaged_embedding: 平均人脸特征向量
+	"""
+	try:
+		# 检查视频文件是否存在
+		if not os.path.exists(track_video_path):
+			sys.stderr.write(f"视频文件不存在: {track_video_path}\n")
+			return None
+			
+		video = cv2.VideoCapture(track_video_path)
+		if not video.isOpened():
+			sys.stderr.write(f"无法打开视频文件: {track_video_path}\n")
+			return None
+			
+		frames = []
+		total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+		
+		# 均匀采样帧
+		if total_frames > 0:
+			step = max(1, total_frames // sample_frames)
+			for i in range(0, total_frames, step):
+				video.set(cv2.CAP_PROP_POS_FRAMES, i)
+				ret, frame = video.read()
+				if ret and frame is not None and frame.size > 0:
+					frames.append(frame)
+					if len(frames) >= sample_frames:
+						break
+		
+		video.release()
+		
+		if not frames:
+			sys.stderr.write(f"无法从视频中提取有效帧: {track_video_path}\n")
+			return None
+		
+		# 使用DeepFace提取特征
+		embeddings = []
+		for idx, frame in enumerate(frames):
+			tmp_file_path = None
+			try:
+				# 验证帧内容
+				if frame is None or frame.size == 0:
+					continue
+					
+				# 创建唯一的临时文件路径
+				tmp_file_path = f"/tmp/deepface_frame_{uuid.uuid4().hex}.jpg"
+				
+				# 写入图片文件并验证
+				write_success = cv2.imwrite(tmp_file_path, frame)
+				if not write_success:
+					sys.stderr.write(f"图片写入失败: frame {idx}\n")
+					continue
+					
+				# 检查文件是否真的被创建且有内容
+				if not os.path.exists(tmp_file_path) or os.path.getsize(tmp_file_path) == 0:
+					sys.stderr.write(f"临时文件创建失败或为空: {tmp_file_path}\n")
+					continue
+				
+				# 使用DeepFace提取特征 - 使用Facenet模型
+				result = DeepFace.represent(
+					img_path=tmp_file_path,
+					model_name='Facenet',
+					enforce_detection=False,  # 允许在检测失败时继续
+					detector_backend='opencv'
+				)
+				
+				if result and len(result) > 0:
+					embedding = numpy.array(result[0]['embedding'])
+					embeddings.append(embedding)
+					sys.stderr.write(f"成功提取特征: frame {idx}, 特征维度: {len(embedding)}\n")
+				else:
+					sys.stderr.write(f"DeepFace返回空结果: frame {idx}\n")
+				
+			except Exception as e:
+				sys.stderr.write(f"DeepFace特征提取失败 (frame {idx}): {str(e)}\n")
+				continue
+			finally:
+				# 确保临时文件被清理
+				if tmp_file_path and os.path.exists(tmp_file_path):
+					try:
+						os.remove(tmp_file_path)
+					except:
+						pass
+		
+		if embeddings:
+			# 返回所有帧特征的平均值
+			averaged_embedding = numpy.mean(embeddings, axis=0)
+			sys.stderr.write(f"成功提取DeepFace特征: {len(embeddings)}/{len(frames)} 帧, 平均特征维度: {len(averaged_embedding)}\n")
+			return averaged_embedding
+		else:
+			sys.stderr.write(f"所有帧的DeepFace特征提取都失败: {track_video_path}\n")
+			return None
+			
+	except Exception as e:
+		sys.stderr.write(f"视频处理失败: {track_video_path}, 错误: {str(e)}\n")
+		return None
+
+def evaluate_network_with_deepface_features(files, args):
+	# GPU: active speaker detection with DeepFace features extraction
+	s = ASD()
+	s.loadParameters(args.pretrainModel)
+	sys.stderr.write("Model %s loaded from previous state! \r\n"%args.pretrainModel)
+	s.eval()
+	allScores = []
+	allFeatures = []  # Store DeepFace features for each track
+	durationSet = {1,1,1,2,2,2,3,3,4,5,6}
+	
+	sys.stderr.write("开始使用DeepFace提取人脸特征...\n")
+	
+	for file in tqdm.tqdm(files, total = len(files)):
+		fileName = os.path.splitext(file.split('/')[-1])[0]
+		
+		# 1. 计算ASD说话检测分数
+		_, audio = wavfile.read(os.path.join(args.pycropPath, fileName + '.wav'))
+		audioFeature = python_speech_features.mfcc(audio, 16000, numcep = 13, winlen = 0.025, winstep = 0.010)
+		video = cv2.VideoCapture(os.path.join(args.pycropPath, fileName + '.avi'))
+		videoFeature = []
+		
+		while video.isOpened():
+			ret, frames = video.read()
+			if ret == True:
+				face = cv2.cvtColor(frames, cv2.COLOR_BGR2GRAY)
+				face = cv2.resize(face, (224,224))
+				face = face[int(112-(112/2)):int(112+(112/2)), int(112-(112/2)):int(112+(112/2))]
+				videoFeature.append(face)
+			else:
+				break
+		video.release()
+		videoFeature = numpy.array(videoFeature)
+		
+		length = min((audioFeature.shape[0] - audioFeature.shape[0] % 4) / 100, videoFeature.shape[0])
+		audioFeature = audioFeature[:int(round(length * 100)),:]
+		videoFeature = videoFeature[:int(round(length * 25)),:,:]
+		
+		allScore = []
+		
+		for duration in durationSet:
+			batchSize = int(math.ceil(length / duration))
+			scores = []
+			with torch.no_grad():
+				for i in range(batchSize):
+					inputA = torch.FloatTensor(audioFeature[i * duration * 100:(i+1) * duration * 100,:]).unsqueeze(0).cuda()
+					inputV = torch.FloatTensor(videoFeature[i * duration * 25: (i+1) * duration * 25,:,:]).unsqueeze(0).cuda()
+					embedA = s.model.forward_audio_frontend(inputA)
+					embedV = s.model.forward_visual_frontend(inputV)
+					out = s.model.forward_audio_visual_backend(embedA, embedV)
+					score = s.lossAV.forward(out, labels = None)
+					scores.extend(score)
+			allScore.append(scores)
+		
+		allScore = numpy.round((numpy.mean(numpy.array(allScore), axis = 0)), 1).astype(float)
+		allScores.append(allScore)
+		
+		# 2. 使用DeepFace提取人脸特征
+		video_path = os.path.join(args.pycropPath, fileName + '.avi')
+		deepface_feature = extract_deepface_features_from_track(video_path, sample_frames=8)
+		
+		if deepface_feature is not None:
+			allFeatures.append(deepface_feature)
+		else:
+			# 如果DeepFace失败，使用零向量作为fallback
+			sys.stderr.write(f"警告: Track {fileName} DeepFace特征提取失败，使用零向量\n")
+			allFeatures.append(numpy.zeros(128))  # FaceNet特征维度为128
+	
+	sys.stderr.write(f"DeepFace特征提取完成，成功提取 {len([f for f in allFeatures if not numpy.allclose(f, 0)])} 个有效特征\n")
+	return allScores, allFeatures
+
+def cluster_speakers_by_deepface_features(features, threshold=0.75):
+	"""
+	基于DeepFace人脸特征向量进行说话人聚类
+	使用改进的聚类算法，自动确定说话人数量
+	"""
+	if len(features) == 0:
+		return []
+	
+	features = numpy.array(features)
+	n_tracks = len(features)
+	
+	# 过滤掉零向量（DeepFace提取失败的track）
+	valid_indices = []
+	valid_features = []
+	for i, feature in enumerate(features):
+		if not numpy.allclose(feature, 0):
+			valid_indices.append(i)
+			valid_features.append(feature)
+	
+	if len(valid_features) == 0:
+		sys.stderr.write("警告: 没有有效的DeepFace特征，使用默认聚类\n")
+		return [{'speaker_id': 'Speaker_1', 'tracks': list(range(n_tracks)), 'avg_feature': numpy.zeros(128)}]
+	
+	valid_features = numpy.array(valid_features)
+	sys.stderr.write(f"有效特征数: {len(valid_features)} / {n_tracks}\n")
+	
+	# 计算有效特征之间的相似度矩阵
+	sim_matrix = cosine_similarity(valid_features)
+	
+	# 使用改进的贪心聚类算法，针对DeepFace特征优化
+	best_n_clusters = 1
+	best_score = -1
+	best_labels = numpy.zeros(len(valid_features), dtype=int)
+	
+	# DeepFace特征通常区分度更好，使用更高的阈值
+	thresholds_to_try = [0.5]
+	
+	for sim_threshold in thresholds_to_try:
+		# 使用贪心聚类（只对有效特征进行）
+		labels = numpy.full(len(valid_features), -1, dtype=int)
+		cluster_id = 0
+		
+		for i in range(len(valid_features)):
+			if labels[i] == -1:  # 尚未分配聚类
+				# 创建新聚类
+				labels[i] = cluster_id
+				
+				# 寻找与当前track相似的其他tracks
+				for j in range(i + 1, len(valid_features)):
+					if labels[j] == -1 and sim_matrix[i][j] > sim_threshold:
+						labels[j] = cluster_id
+				
+				cluster_id += 1
+		
+		n_clusters = cluster_id
+		
+		# 计算聚类质量分数
+		if n_clusters > 1 and n_clusters <= min(len(valid_features), 5):
+			intra_cluster_sim = 0
+			inter_cluster_sim = 0
+			intra_count = 0
+			inter_count = 0
+			
+			for i in range(len(valid_features)):
+				for j in range(i + 1, len(valid_features)):
+					if labels[i] == labels[j]:
+						intra_cluster_sim += sim_matrix[i][j]
+						intra_count += 1
+					else:
+						inter_cluster_sim += sim_matrix[i][j]
+						inter_count += 1
+			
+			if intra_count > 0 and inter_count > 0:
+				score = (intra_cluster_sim / intra_count) - (inter_cluster_sim / inter_count)
+				
+				# 偏好合理数量的聚类（2-4个）
+				if 2 <= n_clusters <= 4:
+					score += 0.1
+				
+				if score > best_score:
+					best_score = score
+					best_n_clusters = n_clusters
+					best_labels = labels.copy()
+	
+	# 如果所有阈值都导致只有1个聚类，使用更激进的分割
+	if best_n_clusters == 1 and len(valid_features) >= 2:
+		# 找到相似度最低的几对，强制分成不同聚类
+		min_similarities = []
+		for i in range(len(valid_features)):
+			for j in range(i + 1, len(valid_features)):
+				min_similarities.append((sim_matrix[i][j], i, j))
+		
+		min_similarities.sort()  # 按相似度升序排列
+		
+		# 强制分成多个聚类（如果有足够的tracks）
+		if len(valid_features) >= 3:
+			best_labels = numpy.zeros(len(valid_features), dtype=int)
+			used_tracks = set()
+			
+			# 选择相似度最低的一对作为前两个聚类中心
+			if min_similarities:
+				sim, i, j = min_similarities[0]
+				best_labels[i] = 0
+				best_labels[j] = 1
+				used_tracks.add(i)
+				used_tracks.add(j)
+				
+				# 找到与前两个聚类中心差异最大的track作为第三个中心
+				max_min_sim = -1
+				third_center = -1
+				for k in range(len(valid_features)):
+					if k not in used_tracks:
+						min_sim_to_centers = min(sim_matrix[k][i], sim_matrix[k][j])
+						if min_sim_to_centers > max_min_sim:
+							max_min_sim = min_sim_to_centers
+							third_center = k
+				
+				if third_center != -1:
+					best_labels[third_center] = 2
+					used_tracks.add(third_center)
+			
+			# 分配剩余的tracks到最相似的聚类
+			for i in range(len(valid_features)):
+				if i not in used_tracks:
+					best_sim = -1
+					best_cluster = 0
+					for j in range(len(valid_features)):
+						if j in used_tracks and sim_matrix[i][j] > best_sim:
+							best_sim = sim_matrix[i][j]
+							best_cluster = best_labels[j]
+					best_labels[i] = best_cluster
+			
+			best_n_clusters = len(set(best_labels))
+		else:
+			# 如果只有2个有效特征，强制分成2个聚类
+			best_labels = numpy.array([0, 1])
+			best_n_clusters = 2
+	
+	labels = best_labels
+	
+	# 构建说话人聚类结果，将有效特征的聚类结果映射回原始track索引
+	speakers = []
+	for cluster_id in range(best_n_clusters):
+		valid_track_indices = [i for i, label in enumerate(labels) if label == cluster_id]
+		if valid_track_indices:
+			# 将有效特征索引转换为原始track索引
+			original_track_indices = [valid_indices[i] for i in valid_track_indices]
+			cluster_features = valid_features[valid_track_indices]
+			avg_feature = numpy.mean(cluster_features, axis=0)
+			
+			speakers.append({
+				'speaker_id': f"Speaker_{cluster_id + 1}",
+				'tracks': original_track_indices,
+				'avg_feature': avg_feature
+			})
+	
+	# 将DeepFace提取失败的tracks分配给最近的聚类（如果有的话）
+	failed_tracks = [i for i in range(n_tracks) if i not in valid_indices]
+	if failed_tracks and speakers:
+		# 将失败的tracks分配给第一个聚类
+		speakers[0]['tracks'].extend(failed_tracks)
+		sys.stderr.write(f"将 {len(failed_tracks)} 个DeepFace提取失败的tracks分配给 {speakers[0]['speaker_id']}\n")
+	
+	# 打印聚类详细信息
+	sys.stderr.write(f"DeepFace聚类详情: 尝试了{len(thresholds_to_try)}种阈值, 最佳聚类数: {best_n_clusters}\n")
+	for i, speaker in enumerate(speakers):
+		track_list = speaker['tracks']
+		sys.stderr.write(f"  {speaker['speaker_id']}: tracks {track_list}\n")
+	
+	return speakers
+
+def generate_speaker_json(tracks, scores, features, args, output_path):
+	"""
+	生成每一帧的说话人标签JSON文件
+	Args:
+		tracks: 人脸追踪结果
+		scores: 说话检测分数
+		features: 人脸特征向量
+		args: 参数
+		output_path: 输出JSON文件路径
+	"""
+	# 1. 聚类说话人
+	sys.stderr.write("开始进行DeepFace说话人聚类...\n")
+	speakers = cluster_speakers_by_deepface_features(features, threshold=args.speakerThreshold)
+	sys.stderr.write(f"检测到 {len(speakers)} 个说话人\n")
+	
+	# 2. 创建track到说话人的映射
+	track_to_speaker = {}
+	for speaker in speakers:
+		for track_idx in speaker['tracks']:
+			track_to_speaker[track_idx] = speaker['speaker_id']
+	
+	# 3. 获取所有帧
+	flist = glob.glob(os.path.join(args.pyframesPath, '*.jpg'))
+	flist.sort()
+	total_frames = len(flist)
+	
+	sys.stderr.write(f"开始生成 {total_frames} 帧的说话人标签...\n")
+	
+	# 4. 生成每帧的说话人信息
+	frame_speakers = []
+	
+	for fidx in tqdm.tqdm(range(total_frames), desc="生成JSON"):
+		timestamp = fidx / 25.0
+		active_speakers = []
+		
+		# 遍历所有tracks，找到在当前帧出现的
+		for tidx, track in enumerate(tracks):
+			score = scores[tidx]
+			frame_list = track['track']['frame'].tolist()
+			
+			if fidx in frame_list:
+				frame_idx_in_track = frame_list.index(fidx)
+				speaker_id = track_to_speaker.get(tidx, f"Unknown_{tidx}")
+				
+				# 平滑处理：取前后几帧的平均分数
+				start_idx = max(frame_idx_in_track - 2, 0)
+				end_idx = min(frame_idx_in_track + 3, len(score))
+				smoothed_score = numpy.mean(score[start_idx:end_idx])
+				
+				is_speaking = bool(smoothed_score > 0)
+				confidence = float(smoothed_score)
+				
+				active_speakers.append({
+					"speaker_id": speaker_id,
+					"is_speaking": is_speaking,
+					"confidence": confidence
+				})
+		
+		frame_speakers.append({
+			"frame_id": fidx,
+			"timestamp": round(timestamp, 3),
+			"active_speakers": active_speakers
+		})
+	
+	# 5. 生成完整JSON
+	result = {
+		"video_info": {
+			"fps": 25,
+			"total_frames": total_frames,
+			"duration": round(total_frames / 25.0, 3),
+			"detected_speakers": [speaker['speaker_id'] for speaker in speakers],
+			"total_tracks": len(tracks),
+			"speaker_mapping": {
+				speaker['speaker_id']: {
+					"tracks": speaker['tracks'],
+					"total_tracks": len(speaker['tracks'])
+				} for speaker in speakers
+			}
+		},
+		"frame_speakers": frame_speakers
+	}
+	
+	# 6. 保存JSON文件
+	os.makedirs(os.path.dirname(output_path), exist_ok=True)
+	with open(output_path, 'w', encoding='utf-8') as f:
+		json.dump(result, f, indent=2, ensure_ascii=False)
+	
+	sys.stderr.write(f"说话人标签JSON文件已保存到: {output_path}\n")
+	
+	# 7. 打印说话人统计信息
+	sys.stderr.write("="*50 + "\n")
+	sys.stderr.write("说话人统计信息:\n")
+	for speaker in speakers:
+		track_count = len(speaker['tracks'])
+		sys.stderr.write(f"  {speaker['speaker_id']}: {track_count} 个tracks\n")
+	sys.stderr.write("="*50 + "\n")
+	
+	return result
+
 def visualization(tracks, scores, args):
 	# CPU: visulize the result for video format
 	flist = glob.glob(os.path.join(args.pyframesPath, '*.jpg'))
@@ -436,7 +886,20 @@ def main():
 	# Active Speaker Detection
 	files = glob.glob("%s/*.avi"%args.pycropPath)
 	files.sort()
-	scores = evaluate_network(files, args)
+	
+	if args.generateJson:
+		# Use the DeepFace enhanced function that extracts features
+		scores, features = evaluate_network_with_deepface_features(files, args)
+		# Save features for potential future use
+		featuresPath = os.path.join(args.pyworkPath, 'deepface_features.pckl')
+		with open(featuresPath, 'wb') as fil:
+			pickle.dump(features, fil)
+		sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " DeepFace features extracted and saved in %s \r\n" %args.pyworkPath)
+	else:
+		# Use the original function
+		scores = evaluate_network(files, args)
+		features = None
+	
 	savePath = os.path.join(args.pyworkPath, 'scores.pckl')
 	with open(savePath, 'wb') as fil:
 		pickle.dump(scores, fil)
@@ -446,6 +909,15 @@ def main():
 		evaluate_col_ASD(vidTracks, scores, args) # The columnbia video is too big for visualization. You can still add the `visualization` funcition here if you want
 		quit()
 	else:
+		# Generate JSON file if requested
+		if args.generateJson and features is not None:
+			# 只影响json输出路径
+			if not os.path.isabs(args.jsonOutputPath):
+				json_output_path = os.path.join(args.videoFolder, args.jsonOutputPath)
+			else:
+				json_output_path = args.jsonOutputPath
+			generate_speaker_json(vidTracks, scores, features, args, json_output_path)
+		
 		# Visualization, save the result as the new video	
 		visualization(vidTracks, scores, args)	
 
