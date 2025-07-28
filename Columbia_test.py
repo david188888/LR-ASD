@@ -722,9 +722,21 @@ def visualization(tracks, scores, args):
 			cv2.putText(image,'%s'%(txt), (int(face['x']-face['s']), int(face['y']-face['s'])), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0,clr,255-clr),5)
 		vOut.write(image)
 	vOut.release()
+	
+	# Convert video_only.avi to video_only.mp4 using FFmpeg
+	command = ("ffmpeg -y -i %s -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p %s -loglevel panic" % \
+		(os.path.join(args.pyaviPath, 'video_only.avi'), os.path.join(args.pyaviPath, 'video_only.mp4')))
+	output = subprocess.call(command, shell=True, stdout=None)
+	
+	# Combine video and audio to create video_out.avi (original format)
 	command = ("ffmpeg -y -i %s -i %s -threads %d -c:v copy -c:a copy %s -loglevel panic" % \
 		(os.path.join(args.pyaviPath, 'video_only.avi'), os.path.join(args.pyaviPath, 'audio.wav'), \
-		args.nDataLoaderThread, os.path.join(args.pyaviPath,'video_out.avi'))) 
+		args.nDataLoaderThread, os.path.join(args.pyaviPath,'video_out.avi')))
+	output = subprocess.call(command, shell=True, stdout=None)
+	
+	# Convert video_out.avi to video_out.mp4 using FFmpeg
+	command = ("ffmpeg -y -i %s -c:v libx264 -preset fast -crf 23 -c:a aac %s -loglevel panic" % \
+		(os.path.join(args.pyaviPath, 'video_out.avi'), os.path.join(args.pyaviPath, 'video_out.mp4')))
 	output = subprocess.call(command, shell=True, stdout=None)
 
 def evaluate_col_ASD(tracks, scores, args):
@@ -899,6 +911,51 @@ def main():
 		# Use the original function
 		scores = evaluate_network(files, args)
 		features = None
+	
+	# 生成包含track_id、bbox和时间信息的JSON文件
+	tracks_info = []
+	for tidx, track in enumerate(vidTracks):
+		track_info = {
+			"track_id": tidx,
+			"frames": []
+		}
+		
+		# 获取帧列表和对应的bbox
+		frame_list = track['track']['frame'].tolist()
+		bbox_list = track['track']['bbox'].tolist()
+		score_list = scores[tidx]  # 获取该track的得分列表
+		
+		# 为每一帧添加信息
+		for fidx, (frame, bbox) in enumerate(zip(frame_list, bbox_list)):
+			# 平滑处理：取前后几帧的平均分数（与generate_speaker_json函数保持一致）
+			start_idx = max(fidx - 2, 0)
+			end_idx = min(fidx + 3, len(score_list))
+			smoothed_score = numpy.mean(score_list[start_idx:end_idx])
+			
+			# 判断是否说话（与generate_speaker_json函数保持一致）
+			is_speaking = bool(smoothed_score > 0)
+			
+			track_info["frames"].append({
+				"frame_id": int(frame),
+				"timestamp": round(frame / 25.0, 3),  # 25 FPS
+				"bbox": [float(x) for x in bbox],  # [x1, y1, x2, y2]
+				"score": float(smoothed_score),  # 平滑后的得分
+				"is_speaking": is_speaking  # 是否说话的判断
+			})
+		
+		tracks_info.append(track_info)
+	
+	# 保存JSON文件
+	tracks_json_path = os.path.join(args.pyworkPath, 'result.json')
+	with open(tracks_json_path, 'w') as f:
+		json.dump(tracks_info, f, indent=2)
+	
+	sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " Tracks info saved in %s \r\n" %tracks_json_path)
+	
+	savePath = os.path.join(args.pyworkPath, 'scores.pckl')
+	with open(savePath, 'wb') as fil:
+		pickle.dump(scores, fil)
+	sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " Scores extracted and saved in %s \r\n" %args.pyworkPath)
 	
 	savePath = os.path.join(args.pyworkPath, 'scores.pckl')
 	with open(savePath, 'wb') as fil:

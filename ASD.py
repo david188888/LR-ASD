@@ -88,7 +88,7 @@ class ASD(nn.Module):
         selfState = self.state_dict()
         loadedState = torch.load(path)
         for name, param in loadedState.items():
-            origName = name;
+            origName = name
             if name not in selfState:
                 name = name.replace("module.", "")
                 if name not in selfState:
