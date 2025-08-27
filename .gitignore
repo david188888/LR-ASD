@@ -3,3 +3,7 @@ demo
 
 model/faceDetector/s3fd/
 pretrained_models/spkrec-ecapa-voxceleb/
+model/faceDetector/s3fd/sfd_face.pth
+data/test.mp4
+CLAUDE.md
+.DS_Store

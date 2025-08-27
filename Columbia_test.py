@@ -96,7 +96,7 @@ def scene_detect(args):
 
 def inference_video(args):
 	# GPU: Face detection, output is the list contains the face location and score in this frame
-	DET = S3FD(device='cuda')
+	DET = S3FD(device='cuda' if torch.cuda.is_available() else 'cpu')
 	flist = glob.glob(os.path.join(args.pyframesPath, '*.jpg'))
 	flist.sort()
 	dets = []
@@ -241,8 +241,8 @@ def evaluate_network(files, args):
 			scores = []
 			with torch.no_grad():
 				for i in range(batchSize):
-					inputA = torch.FloatTensor(audioFeature[i * duration * 100:(i+1) * duration * 100,:]).unsqueeze(0).cuda()
-					inputV = torch.FloatTensor(videoFeature[i * duration * 25: (i+1) * duration * 25,:,:]).unsqueeze(0).cuda()
+					inputA = torch.FloatTensor(audioFeature[i * duration * 100:(i+1) * duration * 100,:]).unsqueeze(0).to(s.device)
+					inputV = torch.FloatTensor(videoFeature[i * duration * 25: (i+1) * duration * 25,:,:]).unsqueeze(0).to(s.device)
 					embedA = s.model.forward_audio_frontend(inputA)
 					embedV = s.model.forward_visual_frontend(inputV)	
 					out = s.model.forward_audio_visual_backend(embedA, embedV)
