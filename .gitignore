@@ -1,9 +1,11 @@
 __pycache__/
 demo
-
 model/faceDetector/s3fd/
 pretrained_models/spkrec-ecapa-voxceleb/
 model/faceDetector/s3fd/sfd_face.pth
 data/test.mp4
 CLAUDE.md
 .DS_Store
+utils/uvr_service/
+pretrained_models/
+utils/speaker_dirization.py
