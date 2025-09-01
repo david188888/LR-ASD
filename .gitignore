@@ -9,3 +9,6 @@ CLAUDE.md
 utils/uvr_service/
 pretrained_models/
 utils/speaker_dirization.py
+utils/uvr_service
+utils/spk.py
+spk_weight/
